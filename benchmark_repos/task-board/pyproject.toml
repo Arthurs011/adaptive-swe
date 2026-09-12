@@ -1,0 +1,11 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "task-board"
+version = "0.1.0"
+packages = ["tasks"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
