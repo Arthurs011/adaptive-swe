@@ -158,14 +158,21 @@ Starts the backend (port 8000), frontend (port 3000), and optionally PostgreSQL.
 
 ## Benchmark repos
 
-Located in `benchmark_repos/` — four Python repos with deliberately introduced bugs:
+Located in `benchmark_repos/` — ten Python repos with deliberately introduced bugs
+(each has at least one existing oracle test that fails on the buggy code):
 
 | Repo | Bug | Type |
 |------|-----|------|
-| `discount-calc` | Negative quantity accepted, produces nonsensical discount | Logic error |
-| `csv-import` | `CSVParser.parse()` crashes with `IndexError` on empty CSV | Null handling |
+| `discount-calc` | Negative quantity accepted, produces nonsensical discount | Missing validation |
+| `csv-import` | `CSVParser.parse()` crashes with `IndexError` on empty CSV | Null/empty handling |
 | `string-utils` | `truncate()` truncates short strings (`'hi'` → `'h...'`) | Missing guard |
 | `task-board` | `summarize()` returns total count for every status, not per-status count | Wrong computation |
+| `json-flattener` | `flatten()` never descends into lists (`{'a': [1, {'b': 2}]}` stays nested) | Incomplete recursion |
+| `rate-limiter` | Window expiry resets the count but never advances the window → limiter goes unlimited | State not advanced |
+| `invoice-total` | Items priced under $1.00 escape the tax rate | Wrong guard |
+| `text-stats` | `count_lines()` counts a phantom trailing line on text ending with `\n` | Off-by-one |
+| `search-index` | `tokenize()` keeps punctuation and case (`'Hello, world!'` → `['Hello,', 'world!']`) | Tokenization |
+| `url-toolkit` | `is_valid_url('notaurl://thing')` returns True (no host validation) | Validation |
 
 ---
 

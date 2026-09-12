@@ -16,6 +16,7 @@ import csv
 import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
+from pathlib import Path
 
 from ..agents.repair_agent import RepairAgent
 from ..config import RESULTS_DIR
@@ -32,15 +33,109 @@ class BenchmarkIssue:
     description: str
 
 
+_REPOS = "benchmark_repos"
+
+
+def _local(repo: str) -> str:
+    return str(Path(__file__).resolve().parents[2].parent / _REPOS / repo)
+
+
 DEFAULT_ISSUES: list[BenchmarkIssue] = [
     BenchmarkIssue(
-        key="calc-divide-zero",
-        repo_url="https://github.com/harm-dev/calculator-demo",
-        title="Division by zero crashes calculator",
+        key="discount-negative-qty",
+        repo_url=_local("discount-calc"),
+        title="Negative quantity produces incorrect total",
         description=(
-            "Calling calculate('/') or divide() with a zero divisor raises "
-            "ZeroDivisionError instead of returning a friendly error. Handle "
-            "the zero-divisor edge case."
+            "Calling calculate_discount() with a negative quantity produces an "
+            "incorrect total. A negative quantity should be rejected (e.g. raise "
+            "ValueError or clamp) instead of producing a nonsensical discount."
+        ),
+    ),
+    BenchmarkIssue(
+        key="csv-empty-input",
+        repo_url=_local("csv-import"),
+        title="Empty CSV causes server error",
+        description=(
+            "CSVParser.parse() crashes with IndexError when the CSV input is empty "
+            "(no rows). It should handle the empty-input case gracefully instead of raising."
+        ),
+    ),
+    BenchmarkIssue(
+        key="string-truncate-short",
+        repo_url=_local("string-utils"),
+        title="truncate() truncates short text",
+        description=(
+            "truncate('hi', 2) returns 'h...' instead of 'hi' because the length check "
+            "is missing. Text shorter than max_width must be returned unchanged."
+        ),
+    ),
+    BenchmarkIssue(
+        key="taskboard-status-counts",
+        repo_url=_local("task-board"),
+        title="Task status counts are all wrong",
+        description=(
+            "summarize() returns for every status the total number of tasks instead of "
+            "the per-status count. Three tasks (1 todo, 2 done) should produce "
+            "{'todo': 1, 'done': 2} but currently produce {'todo': 3, 'done': 3}."
+        ),
+    ),
+    BenchmarkIssue(
+        key="flatten-list-descend",
+        repo_url=_local("json-flattener"),
+        title="flatten() does not descend into lists",
+        description=(
+            "flatten() stores list values untouched instead of indexing them. "
+            "flatten({'a': [1, 2, {'b': 3}]}) should produce {'a.0': 1, 'a.1': 2, "
+            "'a.2.b': 3} but currently keeps the list verbatim."
+        ),
+    ),
+    BenchmarkIssue(
+        key="ratelimiter-window-reset",
+        repo_url=_local("rate-limiter"),
+        title="Rate limiter becomes unlimited after first window",
+        description=(
+            "is_allowed() resets the request count when a window expires but never "
+            "advances the window start, so after the first window every request "
+            "gets a fresh bucket and the limit is never enforced again."
+        ),
+    ),
+    BenchmarkIssue(
+        key="invoice-untaxed-items",
+        repo_url=_local("invoice-total"),
+        title="Cheap items are not taxed",
+        description=(
+            "calculate_total() skips line items priced under $1.00 when computing "
+            "the taxable base. An item at $0.50 x2 with 10% tax should total $1.10, "
+            "currently it returns $1.00."
+        ),
+    ),
+    BenchmarkIssue(
+        key="textstats-trailing-newline",
+        repo_url=_local("text-stats"),
+        title="count_lines() miscounts trailing newlines",
+        description=(
+            "count_lines() counts a phantom extra line when text ends with a "
+            "newline: count_lines('one\\ntwo\\n') returns 3 instead of 2."
+        ),
+    ),
+    BenchmarkIssue(
+        key="search-punctuation",
+        repo_url=_local("search-index"),
+        title="Tokenizer keeps punctuation and case",
+        description=(
+            "tokenize() does not strip punctuation or lower-case words, so "
+            "'Hello, world!' tokenizes to ['Hello,', 'world!'] instead of "
+            "['hello', 'world']."
+        ),
+    ),
+    BenchmarkIssue(
+        key="url-fake-scheme",
+        repo_url=_local("url-toolkit"),
+        title="is_valid_url() accepts made-up URLs",
+        description=(
+            "is_valid_url() returns True for any '<scheme>://<text>' string such as "
+            "'notaurl://thing', even though the host has no valid domain or address. "
+            "It must validate the host portion."
         ),
     ),
 ]

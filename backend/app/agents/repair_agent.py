@@ -299,6 +299,7 @@ class RepairAgent:
         success = False
         last_patch = None
         reg_test_repaired = False
+        attempts_used = 0
         final_report_data: dict = {}
 
         for attempt_no in range(1, max_attempts + 1):
@@ -327,6 +328,8 @@ class RepairAgent:
                 msg = "No valid edits produced: " + "; ".join(edit_errors or ["empty edit list"])
                 self._event(session_id, "repair", msg)
                 failure_history.append(msg)
+                attempts_used = attempt_no
+                attempt_results.append({"attempt": attempt_no, "status": "invalid-edits", "reason": msg})
                 continue
 
             patch_attempt_row = self._create_attempt_row(session_id, attempt_no, patch_result.strategy)
@@ -430,24 +433,50 @@ class RepairAgent:
                 f"{fail_analysis.diagnosis}\nRevision advice: {fail_analysis.revision_strategy}"
             )
 
-            # 10f. if the regression test itself looks broken (existing tests all
-            #      pass while only the regression test errors), regenerate the
-            #      regression test and re-confirm reproduction against original.
+            # 10f. if the regression test itself looks broken while existing
+            #      tests all pass, regenerate the regression test and re-confirm
+            #      reproduction against the original. Two triggers:
+            #        (a) construction/import error in the test itself;
+            #        (b) the test keeps failing across attempts even though every
+            #            existing (oracle) test passes -> the test likely asserts
+            #            the buggy behaviour or impossible semantics.
             reg_messages = " ".join((r.message or "") for r in reg_failures)
             test_construction_error = _looks_like_test_error(reg_messages)
-            if not existing_failures and reg_failures and test_construction_error and not reg_test_repaired:
-                self._event(
-                    session_id, "repair",
-                    "Regression test appears malformed (construction/import error); regenerating it",
-                    {"messages": reg_messages[:400]},
-                )
+            test_semantics_suspect = (
+                not existing_failures
+                and attempt_no >= 2
+                and not test_construction_error
+                and reg_failures
+            )
+            if not existing_failures and reg_failures and not reg_test_repaired and (
+                test_construction_error or test_semantics_suspect
+            ):
+                if test_construction_error:
+                    feedback = reg_messages[:2000]
+                    self._event(
+                        session_id, "repair",
+                        "Regression test appears malformed (construction/import error); regenerating it",
+                        {"messages": reg_messages[:400]},
+                    )
+                else:
+                    feedback = (
+                        "The previous regression test kept failing while ALL existing tests "
+                        "pass, so the test itself is likely wrong — it may assert the buggy "
+                        "behaviour or impossible semantics. Rewrite it to assert the CORRECT "
+                        f"behaviour described in the bug report.\nFailing output:\n{reg_messages[:2000]}"
+                    )
+                    self._event(
+                        session_id, "repair",
+                        "Regression test disagrees with existing passing tests; regenerating it",
+                        {"messages": reg_messages[:400]},
+                    )
                 utils.revert_patch(repo_dir, [f for f in _git_tracked_files(repo_dir)])
                 reg_test = self.test_generator.generate(
                     issue_text,
                     suspects,
                     analysis,
                     existing_test_hint=existing_hint,
-                    test_failure_context=reg_messages[:2000],
+                    test_failure_context=feedback,
                 )
                 reg_test_path = reg_test.path
                 reg_test_repaired = True
@@ -622,12 +651,24 @@ class RepairAgent:
         target.write_text(reg_test.content, encoding="utf-8")
 
     def _apply_edits(self, repo_dir: Path, edits) -> str:
-        """Write full-file edits into the working copy, then produce `git diff`.
+        """Write full-file edits into the working copy, then produce a diff.
 
         Returns the unified diff of the changes. Raises RuntimeError on a
         write failure. Used by the repair loop to always get a well-formed diff.
+        The working copy is made a git worktree on demand (baseline commit) so
+        locally-copied repos without a .git directory still produce diffs.
         """
         import subprocess as _sp
+
+        if not (repo_dir / ".git").exists():
+            for cmd in (
+                ["git", "init", "-q"],
+                ["git", "add", "-A"],
+                ["git", "-c", "user.email=swe@adaptive", "-c", "user.name=swe", "commit", "-q", "-m", "baseline"],
+            ):
+                proc = _sp.run(cmd, cwd=str(repo_dir), capture_output=True, text=True)
+                if cmd[0] == "git" and cmd[1] == "commit" and proc.returncode != 0:
+                    raise RuntimeError(f"cannot baseline working copy: {proc.stderr.strip()}")
 
         for e in edits:
             target = repo_dir / e.path.lstrip("/")
@@ -639,15 +680,16 @@ class RepairAgent:
             except OSError as exc:
                 raise RuntimeError(f"cannot write {e.path}: {exc}") from exc
 
+        _sp.run(["git", "add", "-A"], cwd=str(repo_dir), capture_output=True, text=True)
         proc = _sp.run(
-            ["git", "diff", "--", *[e.path for e in edits]],
+            ["git", "diff", "--cached", "--", *[e.path for e in edits]],
             cwd=str(repo_dir),
             capture_output=True,
             text=True,
         )
         diff = proc.stdout or ""
         if not diff.strip():
-            raise RuntimeError("edits produced no changes vs HEAD")
+            raise RuntimeError("edits produced no changes vs baseline")
         return diff
 
     def _create_attempt_row(self, session_id: str, attempt_no: int, strategy: str) -> RepairAttempt:

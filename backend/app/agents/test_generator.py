@@ -24,7 +24,12 @@ Requirements:
 - Use a real file path for a NEW test file (e.g. tests/test_<case>_regression.py).
 - Only import from the repository's own modules.
 - Keep it self-contained; guard imports so collection errors are detectable.
-- The test MUST fail (assert False / raise / wrong result) when the bug exists.
+- ASSERT THE CORRECT behaviour described in the bug report — what SHOULD happen
+  after a fix. The test must FAIL on the current buggy code exactly because the
+  code is wrong; it must PASS on a correct fix.
+- NEVER assert the buggy behaviour itself (e.g. do not assert that a
+  non-limited request is rejected) and never write a test that could never
+  pass after a correct fix.
 
 Reply ONLY with JSON:
 {

@@ -16,7 +16,7 @@ def parse_github_url(url: str) -> dict:
     url = url.strip()
 
     local = Path(url)
-    if local.exists() and (local / ".git").exists():
+    if local.exists() and local.is_dir():
         from ..config import STORAGE_DIR
 
         slug = f"local-{local.name}"
